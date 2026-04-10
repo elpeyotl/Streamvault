@@ -37,10 +37,16 @@ export const usePlayerStore = defineStore('player', {
     streamUrl: null as string | null,
     directUrl: null as string | null, // Original RD URL
     playbackType: 'direct' as 'direct' | 'hls',
-    hlsPlaylist: null as string | null, // HLS m3u8 URL when type is 'hls'
+    hlsPlaylist: null as string | null,
+    hlsSession: null as string | null,
+    mediaDuration: 0,
     mediaTitle: '',
     mediaPoster: null as string | null,
     mediaBackdrop: null as string | null,
+    videoCodec: '',
+    resolution: '',
+    audioTracks: [] as { index: number; language: string; codec: string; title: string; channels: number; isDefault: boolean }[],
+    activeAudioTrack: 0,
     tmdbId: 0,
     mediaType: 'movie' as 'movie' | 'tv',
     seasonNumber: null as number | null,

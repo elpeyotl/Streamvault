@@ -112,12 +112,25 @@ async function startHlsPrep() {
   statusMessage.value = 'Starting transcode...'
 
   try {
-    const result = await $fetch<{ session: string; playlist: string }>('/api/stream/hls', {
+    const result = await $fetch<{
+      session: string
+      playlist: string
+      duration: number
+      audioTracks: any[]
+      subtitleTracks: any[]
+      videoCodec: string
+      resolution: string
+    }>('/api/stream/hls', {
       params: { url: playerStore.directUrl },
     })
 
-    // Store the HLS playlist URL so VideoPlayer can use it
+    // Store HLS session data
     playerStore.hlsPlaylist = result.playlist
+    playerStore.hlsSession = result.session
+    playerStore.mediaDuration = result.duration
+    playerStore.audioTracks = result.audioTracks || []
+    playerStore.videoCodec = result.videoCodec || ''
+    playerStore.resolution = result.resolution || ''
     statusMessage.value = 'Buffering...'
 
     // Small delay to let a couple segments build up

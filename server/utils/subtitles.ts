@@ -1,9 +1,9 @@
 export interface SubtitleResult {
   id: string
+  fileId: number
   language: string
   languageName: string
   filename: string
-  downloadUrl: string
   rating: number
   hearingImpaired: boolean
 }
@@ -54,17 +54,66 @@ export async function searchSubtitles(
 
     return data.data.map(sub => ({
       id: sub.id,
+      fileId: sub.attributes.files[0]?.file_id || 0,
       language: sub.attributes.language,
       languageName: getLanguageName(sub.attributes.language),
       filename: sub.attributes.files[0]?.file_name || '',
-      downloadUrl: '', // Needs a separate download request
       rating: sub.attributes.ratings,
       hearingImpaired: sub.attributes.hearing_impaired,
-    }))
+    })).filter(s => s.fileId > 0)
   } catch {
     console.warn('OpenSubtitles search failed')
     return []
   }
+}
+
+/**
+ * Download a subtitle file and convert SRT to WebVTT.
+ * OpenSubtitles requires a POST to /download with file_id,
+ * which returns a temporary download URL for the SRT file.
+ */
+export async function downloadSubtitleAsVtt(fileId: number): Promise<string> {
+  const config = useRuntimeConfig()
+  const apiKey = config.opensubtitlesApiKey
+  const baseUrl = config.opensubtitlesBaseUrl
+
+  if (!apiKey) throw new Error('OpenSubtitles API key not configured')
+
+  // Step 1: Request download link
+  const dlResponse = await fetch(`${baseUrl}/download`, {
+    method: 'POST',
+    headers: {
+      'Api-Key': apiKey,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ file_id: fileId }),
+  })
+
+  if (!dlResponse.ok) throw new Error(`Download request failed: ${dlResponse.status}`)
+
+  const dlData = await dlResponse.json() as { link: string }
+  if (!dlData.link) throw new Error('No download link returned')
+
+  // Step 2: Fetch the actual subtitle file
+  const srtResponse = await fetch(dlData.link)
+  if (!srtResponse.ok) throw new Error(`Subtitle fetch failed: ${srtResponse.status}`)
+
+  const srtContent = await srtResponse.text()
+
+  // Step 3: Convert SRT to WebVTT
+  return srtToVtt(srtContent)
+}
+
+/**
+ * Convert SRT subtitle format to WebVTT.
+ * Main difference: SRT uses commas in timestamps, VTT uses dots.
+ */
+function srtToVtt(srt: string): string {
+  const vtt = srt
+    .replace(/\r\n/g, '\n')
+    .replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2') // Replace comma with dot in timestamps
+
+  return `WEBVTT\n\n${vtt}`
 }
 
 function getLanguageName(code: string): string {

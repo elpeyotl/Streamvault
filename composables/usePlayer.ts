@@ -11,6 +11,7 @@ export function usePlayer() {
 
   let controlsTimeout: ReturnType<typeof setTimeout> | null = null
   let progressInterval: ReturnType<typeof setInterval> | null = null
+  let hasKnownDuration = false
 
   function bindVideo(el: HTMLVideoElement) {
     videoRef.value = el
@@ -18,7 +19,12 @@ export function usePlayer() {
     el.addEventListener('play', () => { isPlaying.value = true })
     el.addEventListener('pause', () => { isPlaying.value = false })
     el.addEventListener('timeupdate', () => { currentTime.value = el.currentTime })
-    el.addEventListener('durationchange', () => { duration.value = el.duration })
+    el.addEventListener('durationchange', () => {
+      // Don't override known duration from ffprobe
+      if (!hasKnownDuration && isFinite(el.duration)) {
+        duration.value = el.duration
+      }
+    })
     el.addEventListener('volumechange', () => {
       volume.value = el.volume
       isMuted.value = el.muted
@@ -141,6 +147,13 @@ export function usePlayer() {
     }, intervalMs)
   }
 
+  function setKnownDuration(d: number) {
+    if (d > 0) {
+      duration.value = d
+      hasKnownDuration = true
+    }
+  }
+
   function cleanup() {
     if (controlsTimeout) clearTimeout(controlsTimeout)
     if (progressInterval) clearInterval(progressInterval)
@@ -171,6 +184,7 @@ export function usePlayer() {
     showControlsTemporarily,
     handleKeydown,
     formatTime,
+    setKnownDuration,
     onProgress,
     cleanup,
   }
