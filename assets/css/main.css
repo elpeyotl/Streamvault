@@ -1,0 +1,62 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-vault-bg text-vault-text font-sans antialiased;
+  }
+
+  /* Scrollbar styling */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-vault-bg;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-vault-border rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-vault-muted;
+  }
+}
+
+@layer components {
+  /* TV-compatible focus states */
+  .focusable {
+    @apply outline-none transition-all duration-150 ease-out;
+  }
+  .focusable:focus-visible {
+    @apply ring-2 ring-vault-accent ring-offset-2 ring-offset-vault-bg scale-105;
+  }
+
+  /* Horizontal scroll row (Netflix-style) */
+  .scroll-row {
+    @apply flex gap-4 overflow-x-auto pb-4 snap-x snap-mandatory;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .scroll-row::-webkit-scrollbar {
+    display: none;
+  }
+  .scroll-row > * {
+    @apply snap-start flex-shrink-0;
+  }
+
+  /* Gradient overlays for cards */
+  .card-gradient {
+    background: linear-gradient(to top, rgba(10, 10, 15, 0.95) 0%, rgba(10, 10, 15, 0.4) 50%, transparent 100%);
+  }
+
+  /* Backdrop hero gradient */
+  .hero-gradient {
+    background: linear-gradient(to top, #0A0A0F 0%, rgba(10, 10, 15, 0.8) 40%, rgba(10, 10, 15, 0.3) 100%);
+  }
+
+  /* Glass morphism surface */
+  .glass {
+    @apply bg-vault-surface/80 backdrop-blur-lg border border-vault-border/50;
+  }
+}
