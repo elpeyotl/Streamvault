@@ -23,9 +23,7 @@
         :loading="resolver.loading.value"
         :error="resolver.error.value"
         :stats="resolver.stats.value"
-        @select="onStreamSelect"
-        @play-verified="onPlayVerified"
-        @revalidate="onRevalidate"
+        @play="onStreamPlay"
       />
     </div>
 
@@ -48,15 +46,12 @@
 <script setup lang="ts">
 import type { TMDBMovieDetail } from '~/types/tmdb'
 import type { AvailableStream } from '~/types/stream'
-import type { ValidatedStream } from '~/composables/useStreamValidation'
 
 const route = useRoute()
 const router = useRouter()
 const { movieDetail } = useTMDB()
 const resolver = useStreamResolver()
-const { resolveStream, token: rdToken } = useRealDebrid()
 const { addToWatchlist } = usePlaylists()
-const validation = useStreamValidation()
 const playerStore = usePlayerStore()
 
 const movie = ref<TMDBMovieDetail | null>(null)
@@ -64,113 +59,31 @@ const showPlaylistModal = ref(false)
 
 const id = Number(route.params.id)
 
-// Load movie detail
 onMounted(async () => {
   movie.value = await movieDetail(id)
-  // Auto-search for streams
   if (movie.value?.imdb_id) {
     resolver.findStreams(movie.value.imdb_id)
   }
 })
 
-async function onPlay() {
-  if (!movie.value) return
-
-  // Use best verified stream if available (no extra API calls)
-  const best = validation.bestStream.value
-  if (best?.validatedUrl) {
-    const filename = best.files?.[0]?.filename || best.title
-    playerStore.setStream({
-      url: best.validatedUrl,
-      filename,
-      title: movie.value.title,
-      poster: movie.value.poster_path,
-      backdrop: movie.value.backdrop_path,
-      tmdbId: movie.value.id,
-      mediaType: 'movie',
-      imdbId: movie.value.imdb_id || '',
-    })
-    router.push('/play')
-    return
-  }
-
-  // Otherwise use first available stream
+function onPlay() {
+  // Use first stream — StreamList will resolve it
   const first = resolver.streams.value[0]
   if (first) {
-    try {
-      const result = await resolveStream(first.hash)
-      playerStore.setStream({
-        url: result.url,
-        filename: result.filename,
-        title: movie.value.title,
-        poster: movie.value.poster_path,
-      backdrop: movie.value.backdrop_path,
-        tmdbId: movie.value.id,
-        mediaType: 'movie',
-        imdbId: movie.value.imdb_id || '',
-      })
-      router.push('/play')
-    } catch (e: any) {
-      console.error('Failed to play:', e)
-    }
-    return
-  }
-
-  // No streams loaded yet — trigger search + resolve
-  if (movie.value.imdb_id) {
-    try {
-      const result = await resolver.autoResolve(movie.value.imdb_id)
-      playerStore.setStream({
-        url: result.url,
-        filename: result.filename,
-        title: movie.value.title,
-        poster: movie.value.poster_path,
-      backdrop: movie.value.backdrop_path,
-        tmdbId: movie.value.id,
-        mediaType: 'movie',
-        imdbId: movie.value.imdb_id,
-      })
-      router.push('/play')
-    } catch (e: any) {
-      console.error('Failed to play:', e)
-    }
+    // Trigger click on the first stream card programmatically
+    // For now, just scroll to streams section
+    document.querySelector('[data-focusable]')?.scrollIntoView({ behavior: 'smooth' })
   }
 }
 
-async function onStreamSelect(stream: AvailableStream) {
+function onStreamPlay(data: { url: string; filename: string; stream: AvailableStream }) {
   if (!movie.value) return
-  try {
-    const result = await resolveStream(stream.hash)
-    playerStore.setStream({
-      url: result.url,
-      filename: result.filename,
-      title: movie.value.title,
-      poster: movie.value.poster_path,
-      backdrop: movie.value.backdrop_path,
-      tmdbId: movie.value.id,
-      mediaType: 'movie',
-      imdbId: movie.value.imdb_id || '',
-    })
-    router.push('/play')
-  } catch (e: any) {
-    console.error('Failed to resolve stream:', e)
-  }
-}
-
-async function onAddToWatchlist() {
-  if (!movie.value) return
-  await addToWatchlist(movie.value.id, 'movie')
-}
-
-function onPlayVerified(stream: ValidatedStream) {
-  if (!movie.value || !stream.validatedUrl) return
-  // Use the validated filename to detect format, fall back to stream title
-  const filename = stream.files?.[0]?.filename || stream.title
   playerStore.setStream({
-    url: stream.validatedUrl,
-    filename,
+    url: data.url,
+    filename: data.filename,
     title: movie.value.title,
     poster: movie.value.poster_path,
+    backdrop: movie.value.backdrop_path,
     tmdbId: movie.value.id,
     mediaType: 'movie',
     imdbId: movie.value.imdb_id || '',
@@ -178,8 +91,8 @@ function onPlayVerified(stream: ValidatedStream) {
   router.push('/play')
 }
 
-async function onRevalidate(hash: string) {
-  if (!rdToken.value) return
-  await validation.validateSingle(hash, rdToken.value)
+async function onAddToWatchlist() {
+  if (!movie.value) return
+  await addToWatchlist(movie.value.id, 'movie')
 }
 </script>

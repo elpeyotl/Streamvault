@@ -1,4 +1,4 @@
-import type { AvailableStream } from '~/types/stream'
+import type { AvailableStream, TorrentHash } from '~/types/stream'
 
 /**
  * Server-side cache for stream resolve results.
@@ -40,10 +40,11 @@ export default defineEventHandler(async (event) => {
   }
 
   // 2. Check cache availability on Real-Debrid
-  // Limit to top 15 hashes to avoid RD rate limiting
-  // (each hash = 3 API calls: addMagnet + getTorrentInfo + deleteTorrent)
-  const topHashes = hashes.slice(0, 15).map(h => h.hash)
-  const cachedResults = await checkCachedHashes(topHashes, token)
+  // Pick a balanced mix across quality tiers so we don't blow the budget
+  // on uncached 4K while missing cached 1080p streams.
+  // Budget: ~20 hashes (each = 3 API calls)
+  const hashesToCheck = pickBalancedHashes(hashes, 20)
+  const cachedResults = await checkCachedHashes(hashesToCheck.map(h => h.hash), token)
 
   // 3. Build available streams list (only cached)
   const streams: AvailableStream[] = []
@@ -90,3 +91,48 @@ export default defineEventHandler(async (event) => {
 
   return response
 })
+
+/**
+ * Pick a balanced set of hashes across quality tiers.
+ * Ensures we check some 4K, some 1080p, some 720p —
+ * rather than blowing the entire budget on one tier that may not be cached.
+ */
+function pickBalancedHashes(hashes: TorrentHash[], budget: number): TorrentHash[] {
+  const tiers: Record<string, TorrentHash[]> = {
+    '4k': [],
+    '1080p': [],
+    'other': [],
+  }
+
+  for (const h of hashes) {
+    if (h.quality === '4k' || h.quality === '2160p') tiers['4k'].push(h)
+    else if (h.quality === '1080p') tiers['1080p'].push(h)
+    else tiers['other'].push(h)
+  }
+
+  // Allocate budget: 4K gets 6, 1080p gets 10, other gets 4
+  // If a tier has fewer, redistribute to others
+  const allocs = { '4k': 6, '1080p': 10, 'other': 4 }
+  const picked: TorrentHash[] = []
+
+  let remaining = budget
+  for (const tier of ['4k', '1080p', 'other'] as const) {
+    const take = Math.min(allocs[tier], tiers[tier].length, remaining)
+    picked.push(...tiers[tier].slice(0, take))
+    remaining -= take
+  }
+
+  // Fill remaining budget with whatever's left
+  if (remaining > 0) {
+    const used = new Set(picked.map(h => h.hash))
+    for (const h of hashes) {
+      if (remaining <= 0) break
+      if (!used.has(h.hash)) {
+        picked.push(h)
+        remaining--
+      }
+    }
+  }
+
+  return picked
+}

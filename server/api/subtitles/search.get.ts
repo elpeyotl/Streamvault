@@ -9,5 +9,8 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, message: 'IMDB ID is required' })
   }
 
+  const config = useRuntimeConfig()
+  console.log(`[subtitles] API key loaded: ${config.opensubtitlesApiKey ? 'yes (' + config.opensubtitlesApiKey.substring(0, 6) + '...)' : 'NO'}`)
+
   return searchSubtitles(imdb, { languages, season, episode })
 })

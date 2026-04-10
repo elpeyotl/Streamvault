@@ -12,6 +12,7 @@ export function usePlayer() {
   let controlsTimeout: ReturnType<typeof setTimeout> | null = null
   let progressInterval: ReturnType<typeof setInterval> | null = null
   let hasKnownDuration = false
+  let onCloseCallback: (() => void) | null = null
 
   function bindVideo(el: HTMLVideoElement) {
     videoRef.value = el
@@ -131,6 +132,8 @@ export function usePlayer() {
         if (isFullscreen.value) {
           document.exitFullscreen()
           isFullscreen.value = false
+        } else if (onCloseCallback) {
+          onCloseCallback()
         }
         break
     }
@@ -145,6 +148,10 @@ export function usePlayer() {
         callback(currentTime.value, duration.value)
       }
     }, intervalMs)
+  }
+
+  function onClose(cb: () => void) {
+    onCloseCallback = cb
   }
 
   function setKnownDuration(d: number) {
@@ -185,6 +192,7 @@ export function usePlayer() {
     handleKeydown,
     formatTime,
     setKnownDuration,
+    onClose,
     onProgress,
     cleanup,
   }

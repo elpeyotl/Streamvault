@@ -17,12 +17,12 @@
 
     <!-- Episodes -->
     <div v-if="episodes.length" class="space-y-2">
-      <button
+      <NuxtLink
         v-for="ep in episodes"
         :key="ep.episodeNumber"
+        :to="`/tv/${props.showId}/${props.selectedSeason}/${ep.episodeNumber}`"
         class="focusable w-full text-left flex gap-4 p-3 rounded-xl bg-vault-surface hover:bg-vault-surface-light border border-vault-border/50 hover:border-vault-accent/30 transition-all"
         data-focusable
-        @click="$emit('selectEpisode', ep.episodeNumber)"
       >
         <!-- Episode still -->
         <div class="flex-shrink-0 w-40 aspect-video rounded-lg overflow-hidden bg-vault-surface-light">
@@ -50,7 +50,7 @@
         <div class="flex-shrink-0 self-center">
           <svg class="w-8 h-8 text-vault-accent/60" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
         </div>
-      </button>
+      </NuxtLink>
     </div>
 
     <div v-else class="py-8 text-center text-vault-muted text-sm">
@@ -62,15 +62,15 @@
 <script setup lang="ts">
 import type { SeasonInfo, EpisodeInfo } from '~/types/media'
 
-defineProps<{
+const props = defineProps<{
   seasons: SeasonInfo[]
   episodes: EpisodeInfo[]
   selectedSeason: number
+  showId: number
 }>()
 
 defineEmits<{
   selectSeason: [seasonNumber: number]
-  selectEpisode: [episodeNumber: number]
 }>()
 
 const { posterUrl } = useTMDB()

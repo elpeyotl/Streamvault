@@ -239,8 +239,8 @@ export async function deleteTorrent(torrentId: string, token: string): Promise<v
 
 /**
  * Pick the best video file from a torrent's file list.
- * Prefers MP4/WebM (browser-native codecs) over MKV (often has AC3/DTS audio
- * that browsers can't play). Falls back to largest video file.
+ * Always picks the largest video file — biggest = highest quality.
+ * HLS transcoding handles any container/audio codec issues.
  */
 export function pickBestVideoFile(files: RDTorrentFile[]): RDTorrentFile | null {
   const videoExtensions = ['.mp4', '.webm', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.ts']
@@ -251,23 +251,5 @@ export function pickBestVideoFile(files: RDTorrentFile[]): RDTorrentFile | null 
 
   if (videoFiles.length === 0) return null
 
-  // Separate browser-friendly (MP4/WebM) from others
-  const browserFriendly = videoFiles.filter(f => {
-    const p = f.path.toLowerCase()
-    return p.endsWith('.mp4') || p.endsWith('.webm')
-  })
-
-  // If there's a reasonably sized MP4/WebM (>500MB for movies), prefer it
-  const largeFriendly = browserFriendly.filter(f => f.bytes > 500 * 1024 * 1024)
-  if (largeFriendly.length > 0) {
-    return largeFriendly.sort((a, b) => b.bytes - a.bytes)[0]
-  }
-
-  // If there's any MP4/WebM, prefer it over MKV
-  if (browserFriendly.length > 0) {
-    return browserFriendly.sort((a, b) => b.bytes - a.bytes)[0]
-  }
-
-  // Fallback: largest video file (likely MKV)
   return videoFiles.sort((a, b) => b.bytes - a.bytes)[0]
 }

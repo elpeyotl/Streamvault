@@ -19,23 +19,35 @@ export async function searchSubtitles(
   const apiKey = config.opensubtitlesApiKey
   const baseUrl = config.opensubtitlesBaseUrl
 
-  if (!apiKey) return []
+  if (!apiKey || apiKey === 'your_opensubtitles_api_key') {
+    console.warn('[subtitles] No OpenSubtitles API key configured')
+    return []
+  }
 
   try {
-    const params: Record<string, string> = { imdb_id: imdbId }
+    // OpenSubtitles expects the numeric IMDB ID
+    const imdbNum = imdbId.replace(/^tt/, '')
+    const params: Record<string, string> = { imdb_id: imdbNum }
     if (options.languages?.length) params.languages = options.languages.join(',')
     if (options.season !== undefined) params.season_number = String(options.season)
     if (options.episode !== undefined) params.episode_number = String(options.episode)
 
     const searchParams = new URLSearchParams(params)
-    const response = await fetch(`${baseUrl}/subtitles?${searchParams}`, {
+    const url = `${baseUrl}/subtitles?${searchParams}`
+    console.log(`[subtitles] Searching: ${url}`)
+
+    const response = await fetch(url, {
       headers: {
         'Api-Key': apiKey,
         'Content-Type': 'application/json',
+        'User-Agent': 'StreamVault v0.1',
       },
     })
 
-    if (!response.ok) return []
+    if (!response.ok) {
+      console.warn(`[subtitles] API returned ${response.status}: ${await response.text()}`)
+      return []
+    }
 
     const data = await response.json() as {
       data: Array<{

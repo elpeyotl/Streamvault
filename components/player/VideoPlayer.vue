@@ -14,8 +14,39 @@
 
     <!-- Buffering spinner -->
     <Transition name="fade">
-      <div v-if="player.isBuffering.value" class="absolute inset-0 flex items-center justify-center pointer-events-none">
+      <div v-if="player.isBuffering.value && !switchingTrack" class="absolute inset-0 flex items-center justify-center pointer-events-none">
         <div class="w-12 h-12 border-3 border-vault-accent border-t-transparent rounded-full animate-spin" />
+      </div>
+    </Transition>
+
+    <!-- Audio track switching overlay (cinematic) -->
+    <Transition name="fade">
+      <div v-if="switchingTrack" class="absolute inset-0 bg-black z-40">
+        <!-- Backdrop -->
+        <div
+          v-if="playerStore.mediaBackdrop"
+          class="absolute inset-0 bg-cover bg-center"
+          :style="{ backgroundImage: `url(${backdropSwitchUrl})` }"
+        />
+        <div class="absolute inset-0 bg-gradient-to-t from-black via-black/70 to-black/40" />
+
+        <div class="relative h-full flex flex-col items-center justify-center">
+          <!-- Poster -->
+          <div v-if="playerStore.mediaPoster" class="mb-6 w-36 rounded-2xl overflow-hidden shadow-2xl ring-1 ring-white/10">
+            <img :src="posterSwitchUrl" :alt="props.title" class="w-full" />
+          </div>
+
+          <h2 class="text-xl font-bold mb-1">{{ props.title }}</h2>
+          <p v-if="props.subtitle" class="text-sm text-vault-muted mb-6">{{ props.subtitle }}</p>
+
+          <!-- Pulsing loader -->
+          <div class="flex items-center gap-1.5 mb-3">
+            <div class="w-2 h-2 bg-vault-accent rounded-full animate-pulse" style="animation-delay: 0ms" />
+            <div class="w-2 h-2 bg-vault-accent rounded-full animate-pulse" style="animation-delay: 150ms" />
+            <div class="w-2 h-2 bg-vault-accent rounded-full animate-pulse" style="animation-delay: 300ms" />
+          </div>
+          <p class="text-sm text-vault-muted">Switching audio track...</p>
+        </div>
       </div>
     </Transition>
 
@@ -69,7 +100,13 @@ const videoEl = ref<HTMLVideoElement>()
 const player = usePlayer()
 const playerStore = usePlayerStore()
 const loadError = ref('')
+const switchingTrack = ref(false)
+const seekOffset = ref(0)
 const controlsVisible = ref(true)
+
+const { backdropUrl: buildBackdropUrl, posterUrl: buildPosterUrl } = useTMDB()
+const backdropSwitchUrl = computed(() => playerStore.mediaBackdrop ? buildBackdropUrl(playerStore.mediaBackdrop, 'w1280') : '')
+const posterSwitchUrl = computed(() => playerStore.mediaPoster ? buildPosterUrl(playerStore.mediaPoster, 'w342') : '')
 const subtitleResults = ref<SubtitleResult[]>([])
 const activeSubtitleId = ref<string | null>(null)
 let controlsTimer: ReturnType<typeof setTimeout> | null = null
@@ -112,6 +149,9 @@ onMounted(async () => {
     loadError.value = messages[err.code] || 'Failed to load video.'
   })
 
+  // ESC closes the player (when not fullscreen)
+  player.onClose(() => emit('close'))
+
   if (playerStore.playbackType === 'hls' && playerStore.hlsPlaylist) {
     await startHls(playerStore.hlsPlaylist, playerStore.directUrl!)
   } else {
@@ -146,7 +186,7 @@ function playDirect(url: string) {
   }
 }
 
-async function startHls(playlistUrl: string, directUrl: string) {
+async function startHls(playlistUrl: string, directUrl: string, resumeAt?: number) {
   const Hls = (await import('hls.js')).default
 
   if (!Hls.isSupported() || !videoEl.value) {
@@ -154,22 +194,29 @@ async function startHls(playlistUrl: string, directUrl: string) {
     return
   }
 
-  const hls = new Hls({ maxBufferLength: 60, maxMaxBufferLength: 120 })
+  const startPos = resumeAt ?? (props.resumeFrom && props.resumeFrom > 0 ? props.resumeFrom : 0)
+
+  const hls = new Hls({
+    maxBufferLength: 60,
+    maxMaxBufferLength: 120,
+    startPosition: startPos,
+    liveSyncDuration: 0,
+  })
   hlsInstance = hls
 
   hls.loadSource(playlistUrl)
   hls.attachMedia(videoEl.value)
 
   hls.on(Hls.Events.MANIFEST_PARSED, () => {
-    console.log(`[player] MANIFEST_PARSED — mediaDuration=${playerStore.mediaDuration}, video.duration=${videoEl.value?.duration}`)
     if (playerStore.mediaDuration > 0) {
       player.setKnownDuration(playerStore.mediaDuration)
-      console.log(`[player] Set known duration to ${playerStore.mediaDuration}s`)
     }
     videoEl.value?.play().catch(() => {})
-    if (props.resumeFrom && props.resumeFrom > 0) {
-      videoEl.value!.currentTime = props.resumeFrom
+    // HLS.js startPosition handles seeking, but force it as backup
+    if (startPos > 0 && videoEl.value) {
+      videoEl.value.currentTime = startPos
     }
+    switchingTrack.value = false
   })
 
   hls.on(Hls.Events.ERROR, (_: any, data: any) => {
@@ -177,6 +224,7 @@ async function startHls(playlistUrl: string, directUrl: string) {
       console.error('[hls.js] fatal error:', data.type, data.details)
       hls.destroy()
       hlsInstance = null
+      switchingTrack.value = false
       playDirect(directUrl)
     }
   })
@@ -240,11 +288,46 @@ async function onSelectSubtitle(id: string | null) {
   }
 }
 
-function onSelectAudioTrack(index: number) {
-  // Audio track switching requires restarting the HLS session
-  // For now, just note the selection — full implementation deferred
+async function onSelectAudioTrack(index: number) {
+  if (!playerStore.directUrl || playerStore.playbackType !== 'hls') return
+
+  const resumeAt = Math.floor(player.currentTime.value)
+  switchingTrack.value = true
+
+  // Pause and destroy current HLS
+  player.pause()
+  if (hlsInstance) {
+    hlsInstance.destroy()
+    hlsInstance = null
+  }
+
   playerStore.activeAudioTrack = index
-  console.log(`[player] Audio track switch to ${index} — requires HLS session restart (not yet implemented)`)
+
+  try {
+    // Start new HLS session — ffmpeg seeks to current position with -ss
+    const result = await $fetch<{
+      session: string
+      playlist: string
+      duration: number
+      seekOffset: number
+      audioTracks: any[]
+    }>('/api/stream/hls', {
+      params: { url: playerStore.directUrl, audioTrack: index, seek: resumeAt },
+    })
+
+    playerStore.hlsPlaylist = result.playlist
+    playerStore.hlsSession = result.session
+
+    // HLS starts at 0 (ffmpeg seeked), so startPosition=0 is correct
+    // But we need to offset the displayed time
+    seekOffset.value = result.seekOffset || 0
+
+    await startHls(result.playlist, playerStore.directUrl!, 0)
+  } catch (e: any) {
+    console.error('[player] Audio track switch failed:', e)
+    switchingTrack.value = false
+    playDirect(playerStore.directUrl!)
+  }
 }
 </script>
 

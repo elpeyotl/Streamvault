@@ -235,7 +235,40 @@ export function useStreamValidation() {
   }
 
   /**
-   * Sorted streams: verified first (fastest first), then pending, then dead
+   * Score a stream for ranking. Higher = better.
+   * Factors: quality, speed, size, language match.
+   */
+  function streamScore(s: ValidatedStream): number {
+    let score = 0
+
+    // Quality (biggest factor)
+    const qualityScores: Record<string, number> = {
+      '4k': 50, '2160p': 50, '1080p': 40, '720p': 25, '480p': 10, 'unknown': 5,
+    }
+    score += qualityScores[s.quality] || 5
+
+    // Speed (MB/s) — normalize: 5+ MB/s is great, 0.5 is poor
+    if (s.validatedSpeed) {
+      score += Math.min(s.validatedSpeed * 4, 30) // max 30 points
+    }
+
+    // Size as proxy for bitrate (larger = better quality usually)
+    // Normalize: 1-2GB = decent, 4GB+ = great
+    const gb = s.size / (1024 * 1024 * 1024)
+    score += Math.min(gb * 5, 20) // max 20 points
+
+    // Language preference match
+    const preferences = usePreferencesStore()
+    if (preferences.preferredLanguages.length > 0) {
+      const hasPreferred = s.languages.some(l => preferences.preferredLanguages.includes(l))
+      if (hasPreferred) score += 15
+    }
+
+    return score
+  }
+
+  /**
+   * Sorted streams: verified first (ranked by composite score), then pending, then dead
    */
   const sortedStreams = computed(() => {
     const all = Array.from(validatedStreams.value.values())
@@ -249,10 +282,8 @@ export function useStreamValidation() {
       const sa = statusOrder[a.validationStatus] ?? 2
       const sb = statusOrder[b.validationStatus] ?? 2
       if (sa !== sb) return sa - sb
-      if (a.validationStatus === 'verified' && b.validationStatus === 'verified') {
-        return (b.validatedSpeed || 0) - (a.validatedSpeed || 0)
-      }
-      return b.size - a.size
+      // Within same status, rank by composite score
+      return streamScore(b) - streamScore(a)
     })
   })
 

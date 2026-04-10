@@ -7,6 +7,7 @@ export const usePreferencesStore = defineStore('preferences', {
     preferredQuality: '1080p' as string,
     autoPlay: true,
     showAllLanguages: false,
+    streamSort: 'best' as 'best' | 'language' | 'quality' | 'size',
   }),
 
   actions: {
@@ -20,6 +21,10 @@ export const usePreferencesStore = defineStore('preferences', {
     },
     setQuality(q: string) {
       this.preferredQuality = q
+      this._persist()
+    },
+    setStreamSort(sort: 'best' | 'language' | 'quality' | 'size') {
+      this.streamSort = sort
       this._persist()
     },
     toggleShowAllLanguages() {
@@ -44,6 +49,7 @@ export const usePreferencesStore = defineStore('preferences', {
         preferredQuality: this.preferredQuality,
         autoPlay: this.autoPlay,
         showAllLanguages: this.showAllLanguages,
+        streamSort: this.streamSort,
       }))
     },
   },

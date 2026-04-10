@@ -45,7 +45,12 @@
 </template>
 
 <script setup lang="ts">
+const route = useRoute()
+const router = useRouter()
 const user = useSafeSupabaseUser()
 const supabaseAvailable = useSupabaseAvailable()
 const { isConfigured: rdConfigured, isPremium: rdPremium } = useRealDebrid()
+
+// Show back button on any page that isn't home
+const showBack = computed(() => route.path !== '/')
 </script>

@@ -227,8 +227,17 @@ export default defineEventHandler(async (event) => {
 
     return result
   } catch (err: any) {
-    result.status = 'dead'
-    result.error = err.message || 'Unknown error during validation'
+    const msg = err.message || err.data?.message || ''
+    const status = err.statusCode || err.status || 0
+
+    // Rate limiting or transient errors — don't mark as dead, keep as available
+    if (status === 429 || status === 503 || msg.includes('rate') || msg.includes('limit')) {
+      result.status = 'available'
+      result.error = 'Rate limited — stream is cached but could not be pre-verified'
+    } else {
+      result.status = 'dead'
+      result.error = msg || 'Unknown error during validation'
+    }
     return result
   } finally {
     // ── Step 4: Cleanup — delete torrent from RD to not clutter account ──

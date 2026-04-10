@@ -36,6 +36,7 @@ export default defineEventHandler(async (event) => {
   }
 
   const audioTrackIndex = Number(query.audioTrack) || 0
+  const seekTo = Number(query.seek) || 0
   const ffmpegPath = findBinary('ffmpeg')
   if (!ffmpegPath) {
     throw createError({ statusCode: 500, message: 'ffmpeg not available' })
@@ -54,6 +55,8 @@ export default defineEventHandler(async (event) => {
   // Build ffmpeg args with explicit stream mapping
   const ffmpegArgs = [
     '-hide_banner',
+    // Seek before input for fast seeking (keyframe-accurate)
+    ...(seekTo > 0 ? ['-ss', String(seekTo)] : []),
     '-i', url,
     '-map', '0:v:0',                             // First video stream
     '-map', `0:a:${audioTrackIndex}?`,            // Selected audio track (? = optional)
@@ -106,6 +109,7 @@ export default defineEventHandler(async (event) => {
     session: sessionId,
     playlist: `/api/stream/hls?session=${sessionId}&file=playlist.m3u8`,
     duration: probe.duration,
+    seekOffset: seekTo,
     audioTracks: probe.audioTracks,
     subtitleTracks: probe.subtitleTracks,
     videoCodec: probe.videoCodec,

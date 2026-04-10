@@ -18,9 +18,12 @@ export async function searchHashes(
   if (zileanResults.status === 'fulfilled') results.push(...zileanResults.value)
   if (torrentioResults.status === 'fulfilled') results.push(...torrentioResults.value)
 
+  // Filter out cam/telesync/low-quality garbage
+  const filtered = results.filter(r => !isJunkRelease(r.title))
+
   // Deduplicate by hash (case-insensitive)
   const seen = new Set<string>()
-  const unique = results.filter(r => {
+  const unique = filtered.filter(r => {
     const key = r.hash.toLowerCase()
     if (seen.has(key)) return false
     seen.add(key)
@@ -108,8 +111,7 @@ async function searchTorrentio(
         infoHash?: string
         title?: string
         name?: string
-        fileSize?: number
-        behaviorHints?: { bingeGroup?: string }
+        behaviorHints?: { bingeGroup?: string; filename?: string }
       }>
     }
 
@@ -117,18 +119,66 @@ async function searchTorrentio(
 
     return data.streams
       .filter(s => s.infoHash)
-      .map(s => ({
-        hash: s.infoHash!,
-        title: s.title || s.name || 'Unknown',
-        size: s.fileSize || 0,
-        quality: parseQuality(s.title || s.name || ''),
-        languages: parseLanguages(s.title || s.name || ''),
-        source: 'torrentio',
-      }))
+      .map(s => {
+        const title = s.title || s.name || 'Unknown'
+        return {
+          hash: s.infoHash!,
+          title,
+          size: parseSizeFromTitle(title),
+          quality: parseQuality(title),
+          languages: parseLanguages(title),
+          source: 'torrentio',
+        }
+      })
   } catch {
     console.warn('Torrentio search failed')
     return []
   }
+}
+
+/**
+ * Parse file size from Torrentio title strings like "💾 39.38 GB" or "💾 1.59 GB"
+ * Returns size in bytes.
+ */
+function parseSizeFromTitle(title: string): number {
+  const match = title.match(/(\d+(?:\.\d+)?)\s*(GB|MB|TB)/i)
+  if (!match) return 0
+
+  const value = parseFloat(match[1])
+  const unit = match[2].toUpperCase()
+
+  switch (unit) {
+    case 'TB': return value * 1024 * 1024 * 1024 * 1024
+    case 'GB': return value * 1024 * 1024 * 1024
+    case 'MB': return value * 1024 * 1024
+    default: return 0
+  }
+}
+
+/**
+ * Detect junk releases: cams, telesyncs, screeners, hardcoded subs, etc.
+ * These are unwatchable quality and should never be shown.
+ */
+function isJunkRelease(title: string): boolean {
+  const t = title.toLowerCase()
+  const junkTags = [
+    'cam', 'camrip', 'cam-rip', 'hdcam', 'hd-cam',
+    'telesync', 'tele-sync', 'hdts', 'hd-ts', 'pdvd',
+    'tc', 'telecine', 'tele-cine', 'hdtc',
+    'scr', 'screener', 'dvdscr', 'dvd-scr', 'bdscr',
+    'r5', 'r6',
+    'workprint',
+  ]
+
+  for (const tag of junkTags) {
+    // Match as whole word to avoid false positives (e.g. "cam" in "camera")
+    const regex = new RegExp(`\\b${tag}\\b`, 'i')
+    if (regex.test(t)) return true
+  }
+
+  // Also filter extremely small files (<500MB for movies = likely garbage)
+  // But we can't check size here since this only takes title
+  return false
 }
 
 /**
@@ -151,29 +201,47 @@ function parseLanguages(title: string): string[] {
   const langs: string[] = []
 
   const langMap: Record<string, string> = {
-    'english': 'en', 'eng': 'en', 'en': 'en',
-    'spanish': 'es', 'esp': 'es', 'spa': 'es', 'es': 'es', 'latino': 'es', 'castellano': 'es',
-    'german': 'de', 'ger': 'de', 'deu': 'de', 'de': 'de', 'deutsch': 'de',
-    'french': 'fr', 'fre': 'fr', 'fra': 'fr', 'fr': 'fr',
-    'italian': 'it', 'ita': 'it', 'it': 'it',
-    'portuguese': 'pt', 'por': 'pt', 'pt': 'pt',
-    'russian': 'ru', 'rus': 'ru', 'ru': 'ru',
-    'japanese': 'ja', 'jpn': 'ja', 'ja': 'ja',
-    'korean': 'ko', 'kor': 'ko', 'ko': 'ko',
-    'chinese': 'zh', 'chi': 'zh', 'zh': 'zh',
-    'hindi': 'hi', 'hin': 'hi', 'hi': 'hi',
-    'arabic': 'ar', 'ara': 'ar', 'ar': 'ar',
-    'dutch': 'nl', 'nld': 'nl', 'nl': 'nl',
-    'swedish': 'sv', 'swe': 'sv', 'sv': 'sv',
-    'multi': 'multi',
+    'english': 'en', 'eng': 'en',
+    'spanish': 'es', 'esp': 'es', 'spa': 'es', 'latino': 'es', 'castellano': 'es',
+    'german': 'de', 'ger': 'de', 'deu': 'de', 'deutsch': 'de',
+    'french': 'fr', 'fre': 'fr', 'fra': 'fr',
+    'italian': 'it', 'ita': 'it',
+    'portuguese': 'pt', 'por': 'pt',
+    'russian': 'ru', 'rus': 'ru',
+    'japanese': 'ja', 'jpn': 'ja',
+    'korean': 'ko', 'kor': 'ko',
+    'chinese': 'zh', 'chi': 'zh',
+    'hindi': 'hi', 'hin': 'hi',
+    'arabic': 'ar', 'ara': 'ar',
+    'dutch': 'nl', 'nld': 'nl',
+    'swedish': 'sv', 'swe': 'sv',
+    'turkish': 'tr', 'tur': 'tr',
+    'polish': 'pl', 'pol': 'pl',
   }
 
   for (const [keyword, code] of Object.entries(langMap)) {
-    // Match whole words to avoid false positives
     const regex = new RegExp(`\\b${keyword}\\b`, 'i')
     if (regex.test(t) && !langs.includes(code)) {
       langs.push(code)
     }
+  }
+
+  // Detect common release group patterns for dual/multi language
+  // DL = Dual Language (usually German+English in German scene)
+  // DUAL = Dual audio
+  // MULTI = Multiple languages
+  if (/\bDL\b/.test(title) || /\bdual\b/i.test(t)) {
+    // DL in German scene releases means German+English
+    if (!langs.includes('de')) langs.push('de')
+    if (!langs.includes('en')) langs.push('en')
+  }
+  if (/\bmulti\b/i.test(t)) {
+    if (!langs.includes('multi')) langs.push('multi')
+  }
+
+  // Detect "GERMAN.DL", "German.DTS", "German.AC3" patterns
+  if (/german[\.\-\s]?(dl|dts|ac3|aac|dd|atmos)/i.test(title)) {
+    if (!langs.includes('de')) langs.push('de')
   }
 
   // If nothing detected, assume English
